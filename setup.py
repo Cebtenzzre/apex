@@ -1,11 +1,15 @@
-import torch
-from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension, CUDA_HOME
 from setuptools import setup, find_packages
 import subprocess
 
 import sys
 import warnings
 import os
+
+BUILDING = not ('--help' in sys.argv[1:] or (sys.argv and sys.argv[1] in ('--help-commands', 'egg_info', '--version')))
+
+if BUILDING:
+    import torch
+    from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension, CUDA_HOME
 
 # ninja build does not work unless include_dirs are abs path
 this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -58,7 +62,7 @@ def append_nvcc_threads(nvcc_extra_args):
     return nvcc_extra_args
 
 
-if not torch.cuda.is_available():
+if BUILDING and not torch.cuda.is_available():
     # https://github.com/NVIDIA/apex/issues/486
     # Extension builds after https://github.com/pytorch/pytorch/pull/23408 attempt to query torch.cuda.get_device_capability(),
     # which will fail if you are compiling in an environment without visible GPUs (e.g. during an nvidia-docker build command).
@@ -80,11 +84,12 @@ if not torch.cuda.is_available():
         else:
             os.environ["TORCH_CUDA_ARCH_LIST"] = "6.0;6.1;6.2;7.0;7.5"
 
-print("\n\ntorch.__version__  = {}\n\n".format(torch.__version__))
-TORCH_MAJOR = int(torch.__version__.split(".")[0])
-TORCH_MINOR = int(torch.__version__.split(".")[1])
+if BUILDING:
+    print("\n\ntorch.__version__  = {}\n\n".format(torch.__version__))
+    TORCH_MAJOR = int(torch.__version__.split(".")[0])
+    TORCH_MINOR = int(torch.__version__.split(".")[1])
 
-if TORCH_MAJOR == 0 and TORCH_MINOR < 4:
+if BUILDING and TORCH_MAJOR == 0 and TORCH_MINOR < 4:
     raise RuntimeError(
         "Apex requires Pytorch 0.4 or newer.\nThe latest stable release can be obtained from https://pytorch.org/"
     )
@@ -109,7 +114,7 @@ else:
     warnings.warn("Option --pyprof not specified. Not installing PyProf dependencies!")
 
 if "--cpp_ext" in sys.argv or "--cuda_ext" in sys.argv:
-    if TORCH_MAJOR == 0:
+    if BUILDING and TORCH_MAJOR == 0:
         raise RuntimeError(
             "--cpp_ext requires Pytorch 1.0 or later, " "found torch.__version__ = {}".format(torch.__version__)
         )
@@ -124,16 +129,19 @@ if "--cpp_ext" in sys.argv:
 # and
 # https://github.com/NVIDIA/apex/issues/456
 # https://github.com/pytorch/pytorch/commit/eb7b39e02f7d75c26d8a795ea8c7fd911334da7e#diff-4632522f237f1e4e728cb824300403ac
-version_ge_1_1 = []
-if (TORCH_MAJOR > 1) or (TORCH_MAJOR == 1 and TORCH_MINOR > 0):
-    version_ge_1_1 = ["-DVERSION_GE_1_1"]
-version_ge_1_3 = []
-if (TORCH_MAJOR > 1) or (TORCH_MAJOR == 1 and TORCH_MINOR > 2):
-    version_ge_1_3 = ["-DVERSION_GE_1_3"]
-version_ge_1_5 = []
-if (TORCH_MAJOR > 1) or (TORCH_MAJOR == 1 and TORCH_MINOR > 4):
-    version_ge_1_5 = ["-DVERSION_GE_1_5"]
-version_dependent_macros = version_ge_1_1 + version_ge_1_3 + version_ge_1_5
+if BUILDING:
+    version_ge_1_1 = []
+    if (TORCH_MAJOR > 1) or (TORCH_MAJOR == 1 and TORCH_MINOR > 0):
+        version_ge_1_1 = ["-DVERSION_GE_1_1"]
+    version_ge_1_3 = []
+    if (TORCH_MAJOR > 1) or (TORCH_MAJOR == 1 and TORCH_MINOR > 2):
+        version_ge_1_3 = ["-DVERSION_GE_1_3"]
+    version_ge_1_5 = []
+    if (TORCH_MAJOR > 1) or (TORCH_MAJOR == 1 and TORCH_MINOR > 4):
+        version_ge_1_5 = ["-DVERSION_GE_1_5"]
+    version_dependent_macros = version_ge_1_1 + version_ge_1_3 + version_ge_1_5
+else:
+    version_dependent_macros = []
 
 if "--distributed_adam" in sys.argv:
     sys.argv.remove("--distributed_adam")
@@ -432,9 +440,10 @@ if "--deprecated_fused_lamb" in sys.argv:
 # Check, if ATen/CUDAGeneratorImpl.h is found, otherwise use ATen/cuda/CUDAGeneratorImpl.h
 # See https://github.com/pytorch/pytorch/pull/70650
 generator_flag = []
-torch_dir = torch.__path__[0]
-if os.path.exists(os.path.join(torch_dir, "include", "ATen", "CUDAGeneratorImpl.h")):
-    generator_flag = ["-DOLD_GENERATOR_PATH"]
+if BUILDING:
+    torch_dir = torch.__path__[0]
+    if os.path.exists(os.path.join(torch_dir, "include", "ATen", "CUDAGeneratorImpl.h")):
+        generator_flag = ["-DOLD_GENERATOR_PATH"]
 
 if "--fast_layer_norm" in sys.argv:
     sys.argv.remove("--fast_layer_norm")
